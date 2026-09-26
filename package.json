@@ -1,0 +1,19 @@
+{
+  "name": "threshold-smart-door",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "check": "svelte-check --tsconfig ./jsconfig.json"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^6.2.0",
+    "svelte": "^5.39.0",
+    "svelte-check": "^4.3.0",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.7"
+  }
+}
