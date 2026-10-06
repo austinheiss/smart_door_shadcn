@@ -1,10 +1,9 @@
-// Shared state for the door: what the screen shows,
-// and which card a tap has opened.
+// Shared state for the door - what the screen shows, and which card a tap has opened.
 import { untrack } from 'svelte';
 import routeData from './routes.json';
 
 // How far down the hall you stand.
-// `from` is where each distance begins along the hall (0 the far end, 1 at the door).
+// "from" is where each distance begins along the hall (0 the far end, 1 at the door).
 export const DISTANCES = [
   { label: 'down the hall', from: 0 },
   { label: 'a few steps away', from: 0.4 },
@@ -15,14 +14,13 @@ export const DISTANCES = [
 export const SKIES = ['sunny', 'cloudy', 'rain', 'storm', 'snow', 'hot', 'cold', 'night'];
 
 export const ui = $state({
-  view: 'home', // home | weather | route | remind
+  view: 'home',
   order: ['route', 'weather', 'remind'],
   distance: 0,
-  route: 1, // 0 walk, 1 drive (driving by default, hence the keys)
+  route: 1,
   sky: 'sunny',
 });
 
-// ---------------------------------------------------------------- places + routes
 export const home = { lat: 39.1305, lon: -84.526 };
 export const destination = { name: 'Langsam Library', short: 'Langsam', lat: 39.1345, lon: -84.515 };
 
@@ -33,13 +31,11 @@ export const routes = [
   { mode: 'drive', label: 'Drive', via: 'Clifton Ave', minutes: Math.round(routeData.drive.seconds / 60) + 5, meters: routeData.drive.meters, path: routeData.drive.path },
 ];
 
-// ---------------------------------------------------------------- calendar
 // Times are hours of the day (13.5 is 1:30 PM).
 export const events = [
   { id: 'studio', title: 'Design studio', from: 9, to: 11.83, where: 'DAAP 5401', color: '#e8784f' },
-  { id: 'lunch', title: 'Lunch with Maya', from: 12.5, to: 13.5, where: 'Clifton Market', color: '#d8b24c' },
-  { id: 'crit', title: 'Portfolio crit', from: 15, to: 16, where: 'Zoom', color: '#9a93ef' },
-  { id: 'gym', title: 'Climbing', from: 18.5, to: 20, where: 'Rockquest', color: '#62b38c' },
+  { id: 'lunch', title: 'Lunch with Liam', from: 12.5, to: 13.5, where: 'Currito', color: '#d8b24c' },
+  { id: 'gym', title: 'Workout', from: 18.5, to: 20, where: 'Crunch', color: '#62b38c' },
 ];
 export const hourText = (h) => {
   const hh = Math.floor(h), mm = Math.round((h - hh) * 60);
@@ -52,8 +48,7 @@ export const reminders = $state([
   { id: 'package', title: 'Package slip', done: false },
 ]);
 
-// ---------------------------------------------------------------- clock
-// Sample morning: the clock starts at 8:31 AM on today's date and runs in real time.
+// The clock starts at 8:31 AM on today's date and runs in real time.
 const started = Date.now();
 const base = new Date();
 base.setHours(8, 31, 0, 0);
@@ -77,7 +72,6 @@ export function urgency() {
   return m > 5 ? 'calm' : m > 0 ? 'soon' : 'now';
 }
 
-// ---------------------------------------------------------------- weather
 // What the screen shows: the scene picked in the side panel.
 const PREVIEW = {
   sunny: { temp: 74, text: 'Sunny', precipIn: null },
@@ -99,9 +93,7 @@ export function conditions() {
   return { ...p, kind, isDay: !night, feels: p.temp - 2, high: night ? p.temp + 16 : p.temp + 5, low: p.temp - 7, wind: night ? 4 : 9, hourly };
 }
 
-// ---------------------------------------------------------------- picking
-// Tapping a card opens it in place and the other two shrink to their sentence;
-// tapping the open card (or another one) closes it or hands the screen over.
+// Tapping a card opens it in place and the other two shrink to their sentence, and tapping the open card (or another one) closes it or hands the screen over.
 const isCard = (key) => ui.order.includes(key);
 
 export function tap(key) {
@@ -124,7 +116,6 @@ let lastTouch = Date.now();
 function touch() { lastTouch = Date.now(); }
 setInterval(() => { if (ui.view !== 'home' && Date.now() - lastTouch > IDLE_MS) back(); }, 1000);
 
-// ---------------------------------------------------------------- the hall
 // Where you stand in the hallway, 0 the far end and 1 at the door. The slider
 // writes `target`; `at` follows it smoothly and is what the scene draws from.
 // Crossing a distance's `from` changes ui.distance.
