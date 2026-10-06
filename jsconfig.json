@@ -1,1 +1,23 @@
-{"compilerOptions":{"allowJs":true,"checkJs":false,"moduleResolution":"bundler","target":"ES2022","module":"ESNext","skipLibCheck":true},"include":["src/**/*.js","src/**/*.svelte"]}
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": false,
+    "moduleResolution": "bundler",
+    "target": "ES2022",
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "paths": {
+      "$lib": [
+        "./src/lib"
+      ],
+      "$lib/*": [
+        "./src/lib/*"
+      ]
+    },
+    "baseUrl": "."
+  },
+  "include": [
+    "src/**/*.js",
+    "src/**/*.svelte"
+  ]
+}

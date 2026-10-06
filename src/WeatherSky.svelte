@@ -1,6 +1,5 @@
 <script>
-  // Animated sky behind the weather section: a canvas scene for each
-  // condition (sun, clouds, rain, lightning, snow, fog, heat, frost).
+  // animated canvas sky behind the weather card, one scene per condition
   import { onMount } from 'svelte';
   let { kind = 'sunny', night = false } = $props();
 
@@ -8,12 +7,10 @@
 
   const SKY = {
     sunny: ['#0f4c92', '#2f7fcf', '#7fbdf0'],
-    partly: ['#1a4f86', '#3f7fbd', '#8cb9e3'],
     cloudy: ['#2b333e', '#4a5563', '#77828f'],
     rain: ['#10161f', '#232d3a', '#3b4757'],
     storm: ['#07090e', '#141a25', '#262d3b'],
     snow: ['#2c3848', '#56667a', '#9aabbf'],
-    fog: ['#4b525b', '#6d747c', '#9ea4aa'],
     hot: ['#8f2a0e', '#d8611f', '#f7b24a'],
     cold: ['#0a2240', '#2e5e8e', '#a8d0ee'],
   };
@@ -50,54 +47,53 @@
   onMount(() => {
     const ctx = canvas.getContext('2d');
     let w = 0, h = 0, dpr = 1, raf = 0, last = performance.now();
-    let clouds = [], drops = [], flakes = [], stars = [], glints = [], fogs = [];
+    let clouds = [], drops = [], flakes = [], stars = [], glints = [];
     let flash = 0, nextFlash = 2 + Math.random() * 3, strike = null;
-    const light = cloudSprite('255,255,255'), grey = cloudSprite('176,184,196'), dark = cloudSprite('58,64,76');
+    const grey = cloudSprite('176,184,196'), dark = cloudSprite('58,64,76');
 
     function seed() {
       const k = kind;
       const rand = (a, b) => a + Math.random() * (b - a);
-      const cloudCount = { partly: 3, cloudy: 7, rain: 7, storm: 8, snow: 6, fog: 3 }[k] ?? 0;
-      clouds = Array.from({ length: cloudCount }, (_, i) => ({ x: rand(-0.3, 1.1) * w, y: rand(-0.15, k === 'partly' ? 0.35 : 0.55) * h, s: rand(0.6, 1.4) * (w / 320), v: rand(4, 12) * (i % 2 ? 1 : 0.6), sprite: k === 'storm' || k === 'rain' ? dark : k === 'partly' ? light : grey, a: rand(0.55, 0.95) }));
+      const cloudCount = { cloudy: 7, rain: 7, storm: 8, snow: 6 }[k] ?? 0;
+      clouds = Array.from({ length: cloudCount }, (_, i) => ({ x: rand(-0.3, 1.1) * w, y: rand(-0.15, 0.55) * h, s: rand(0.6, 1.4) * (w / 320), v: rand(4, 12) * (i % 2 ? 1 : 0.6), sprite: k === 'storm' || k === 'rain' ? dark : grey, a: rand(0.55, 0.95) }));
       const dropCount = k === 'storm' ? 260 : k === 'rain' ? 170 : 0;
       drops = Array.from({ length: dropCount }, () => { const z = Math.random(); return { x: rand(0, w), y: rand(-h, h), z, len: 8 + z * 16, v: 520 + z * 620 }; });
       const flakeCount = k === 'snow' ? 150 : k === 'cold' ? 40 : 0;
       flakes = Array.from({ length: flakeCount }, () => { const z = Math.random(); return { x: rand(0, w), y: rand(0, h), z, r: (k === 'cold' ? 0.5 : 0.8) + z * (k === 'cold' ? 1.2 : 2.6), v: 14 + z * 42, p: rand(0, 6.28) }; });
       stars = night ? Array.from({ length: 70 }, () => ({ x: rand(0, w), y: rand(0, h * 0.8), r: rand(0.3, 1.2), p: rand(0, 6.28) })) : [];
       glints = k === 'cold' ? Array.from({ length: 26 }, () => ({ x: rand(0, w), y: rand(0, h), p: rand(0, 6.28), s: rand(1.5, 3.5) })) : [];
-      fogs = k === 'fog' ? Array.from({ length: 6 }, (_, i) => ({ y: (0.2 + i * 0.14) * h, x: rand(0, w), v: rand(6, 16), a: rand(0.18, 0.35) })) : [];
     }
 
-    // The card changes height while focus moves between sections. Resizing a
-    // canvas clears it, so keep particles (scaled to the new size) and repaint
-    // straight away instead of reseeding, so the sky never blinks.
+    // card height changes as focus moves and resizing clears the canvas, so
+    // rescale particles and repaint now instead of reseeding (no blink)
     let seeded = false;
     function resize() {
-      const r = canvas.getBoundingClientRect();
-      const nw = Math.max(1, r.width), nh = Math.max(1, r.height);
+      // layout size, not screen box: the hall scales the door with a transform
+      const nw = Math.max(1, canvas.offsetWidth), nh = Math.max(1, canvas.offsetHeight);
       if (seeded && Math.abs(nw - w) < 0.5 && Math.abs(nh - h) < 0.5) return;
       const sx = seeded ? nw / w : 1, sy = seeded ? nh / h : 1;
-      dpr = Math.min(2, window.devicePixelRatio || 1);
+      // walking up close zooms ~2x, so render at 2x dpr
+      dpr = Math.min(4, (window.devicePixelRatio || 1) * 2);
       w = nw; h = nh;
       canvas.width = w * dpr; canvas.height = h * dpr;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       if (!seeded) { seed(); seeded = true; }
-      else for (const list of [clouds, drops, flakes, stars, glints, fogs]) for (const p of list) { p.x *= sx; p.y *= sy; }
+      else for (const list of [clouds, drops, flakes, stars, glints]) for (const p of list) { p.x *= sx; p.y *= sy; }
       draw(performance.now());
     }
 
     function sky(t) {
-      const cols = night && !['hot', 'cold'].includes(kind) ? NIGHT : SKY[kind] ?? SKY.sunny;
+      const cols = night ? NIGHT : SKY[kind] ?? SKY.sunny;
       const g = ctx.createLinearGradient(0, 0, 0, h);
-      // blend the three sky colours along a smooth curve (no kink at the middle stop)
+      // smoothstep blend so there's no kink at the middle stop
       for (let i = 0; i <= 24; i++) {
         const t = i / 24, u = t < 0.55 ? t / 0.55 : (t - 0.55) / 0.45;
         const e = u * u * (3 - 2 * u);
-        // below the middle the sky only drifts a little toward the horizon colour, so no bright band sits in the fade
+        // lower half only drifts a bit toward the horizon colour, avoids a bright band
         g.addColorStop(t, t < 0.55 ? mix(cols[0], cols[1], e) : mix(cols[1], blend(cols[1], cols[2], 0.35), e));
       }
       ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
-      if (!night && ['sunny', 'partly', 'hot', 'cold'].includes(kind)) {
+      if (!night && ['sunny', 'hot', 'cold'].includes(kind)) {
         const sx = w * 0.8, sy = h * (kind === 'hot' ? 0.28 : 0.22);
         const pulse = 1 + Math.sin(t * 0.6) * 0.04;
         const r = Math.min(w, h) * (kind === 'hot' ? 0.9 : 0.7) * pulse;
@@ -105,7 +101,6 @@
         const rg = ctx.createRadialGradient(sx, sy, 0, sx, sy, r);
         rg.addColorStop(0, `rgba(${tone},0.95)`); rg.addColorStop(0.08, `rgba(${tone},0.75)`); rg.addColorStop(0.3, `rgba(${tone},0.22)`); rg.addColorStop(1, `rgba(${tone},0)`);
         ctx.fillStyle = rg; ctx.fillRect(0, 0, w, h);
-        // slow crepuscular rays
         ctx.save(); ctx.translate(sx, sy); ctx.rotate(t * 0.02); ctx.globalCompositeOperation = 'lighter';
         for (let i = 0; i < 12; i++) {
           ctx.rotate((Math.PI * 2) / 12);
@@ -117,11 +112,19 @@
       }
       if (night) {
         for (const s of stars) { ctx.fillStyle = `rgba(255,255,255,${0.35 + Math.sin(t * 2 + s.p) * 0.3})`; ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, 7); ctx.fill(); }
-        const mx = w * 0.78, my = h * 0.25, mr = Math.min(w, h) * 0.09;
-        const mg = ctx.createRadialGradient(mx, my, 0, mx, my, mr * 5);
-        mg.addColorStop(0, 'rgba(220,230,255,.35)'); mg.addColorStop(1, 'rgba(220,230,255,0)');
-        ctx.fillStyle = mg; ctx.fillRect(0, 0, w, h);
-        ctx.fillStyle = '#eef2ff'; ctx.beginPath(); ctx.arc(mx, my, mr, 0, 7); ctx.fill();
+        // waxing gibbous moon, no halo: limb shading, faint earthshine, a few maria
+        const mx = w * 0.78, my = h * 0.25, mr = Math.min(w, h) * 0.08;
+        ctx.save();
+        ctx.beginPath(); ctx.arc(mx, my, mr, 0, 7); ctx.clip();
+        ctx.fillStyle = 'rgba(150,165,200,.16)'; ctx.fillRect(mx - mr, my - mr, mr * 2, mr * 2);
+        const lit = ctx.createRadialGradient(mx - mr * 0.25, my - mr * 0.3, mr * 0.1, mx, my, mr * 1.05);
+        lit.addColorStop(0, '#f6f4ec'); lit.addColorStop(0.75, '#e3e1d6'); lit.addColorStop(1, '#c9c7bd');
+        ctx.fillStyle = lit;
+        // terminator is an ellipse edge so the shadow side looks round
+        ctx.beginPath(); ctx.arc(mx, my, mr, -Math.PI / 2, Math.PI / 2); ctx.ellipse(mx, my, mr * 0.55, mr, 0, Math.PI / 2, -Math.PI / 2); ctx.fill();
+        ctx.fillStyle = 'rgba(120,122,130,.22)';
+        for (const [dx, dy, r] of [[0.15, -0.35, 0.22], [0.45, 0.05, 0.16], [0.2, 0.3, 0.2], [0.6, -0.4, 0.1]]) { ctx.beginPath(); ctx.arc(mx + dx * mr, my + dy * mr, r * mr, 0, 7); ctx.fill(); }
+        ctx.restore();
       }
     }
 
@@ -136,7 +139,7 @@
       sky(t);
 
       if (kind === 'hot') {
-        // heat shimmer: drifting translucent bands low in the frame
+        // heat shimmer bands
         for (let i = 0; i < 5; i++) {
           const y = h * (0.55 + i * 0.09) + Math.sin(t * 1.3 + i) * 4;
           const g = ctx.createLinearGradient(0, y - 10, 0, y + 10);
@@ -150,13 +153,6 @@
         const cw = 320 * c.s;
         if (c.x > w + 20) c.x = -cw;
         ctx.globalAlpha = c.a; ctx.drawImage(c.sprite, c.x, c.y, cw, 150 * c.s); ctx.globalAlpha = 1;
-      }
-
-      for (const f of fogs) {
-        f.x = (f.x + f.v * dt) % (w * 2);
-        const g = ctx.createRadialGradient(f.x - w * 0.5, f.y, 0, f.x - w * 0.5, f.y, w * 0.9);
-        g.addColorStop(0, `rgba(225,228,232,${f.a})`); g.addColorStop(1, 'rgba(225,228,232,0)');
-        ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
       }
 
       if (drops.length) {
@@ -207,7 +203,6 @@
     return () => { cancelAnimationFrame(raf); ro.disconnect(); };
   });
 
-  // Re-seed particles whenever the condition changes.
   $effect(() => {
     kind; night;
     canvas?.dispatchEvent(new Event('reseed'));

@@ -1,47 +1,48 @@
 <script>
-  // Directions: how long until you should leave, drawn over our own map of
-  // the neighbourhood with the route lit and a dot walking it.
+  // time-to-leave over our neighbourhood map with the route lit
   import NeighborhoodMap from './NeighborhoodMap.svelte';
   import Icon from './Icon.svelte';
-  import { ui, routes, destination, clock, time, leaveBy, minutesLeft, urgency, tap } from './door.svelte.js';
+  import { ToggleGroup } from '$lib/components/ui/toggle-group/index.js';
+  import PickItem from './PickItem.svelte';
+  import { ui, routes, destination, time, leaveBy, minutesLeft, urgency, tap } from './door.svelte.js';
 
-  let { expanded = false, compact = false, narrow = false, focused = () => false } = $props();
+  let { expanded = false } = $props();
 
   const route = $derived(routes[ui.route]);
   const mins = $derived(minutesLeft());
   const status = $derived(urgency());
-  const km = (m) => (m / 1000).toFixed(1) + ' km';
+  const mi = (m) => (m / 1609.344).toFixed(1) + ' mi';
   const verb = $derived(route.mode === 'walk' ? 'Walk' : 'Drive');
-  const frame = $derived(narrow ? { pad: 0.2, offset: [0, 0.16] } : expanded ? { pad: 0.24, offset: [0.2, 0.02] } : { pad: 0.2, offset: [0.24, 0.17] });
+  // single-choice, never deselects; every press goes through tap().
+  // roving focus off so arrows don't hop rows
+  const chosen = () => String(ui.route);
+  const choose = (v) => tap(`route${v || ui.route}`);
+  // route area: right of text, below clock, clear of faded edges
+  const area = $derived(expanded ? [0.62, 0.32, 0.86, 0.58] : [0.72, 0.46, 0.88, 0.72]);
 </script>
 
-<div class="route {status}" class:expanded class:compact class:narrow>
-  <div class="bg"><NeighborhoodMap pad={frame.pad} offset={frame.offset} label={!narrow} /></div>
+<div class="route {status}" class:expanded>
+  <div class="bg"><NeighborhoodMap {area} /></div>
   <div class="scrim"></div>
 
   <div class="content">
-    <span class="lead"><Icon name={route.mode === 'walk' ? 'walk' : 'car'} size="1em" />{narrow ? verb : `${verb} · ${km(route.meters)} via ${route.via}`}</span>
-    {#if narrow}
-      <span class="sentence"><b>{route.minutes} min</b> to {destination.short}</span>
-    {:else}
-      <span class="sentence">It will take <b>{route.minutes} min</b> to get to {destination.name}</span>
-    {/if}
-    <span class="line when">{#if mins > 0}Leave in {mins} min{narrow ? '' : `, by ${time(leaveBy())}`}{:else if mins === 0}Leave now{:else}{-mins} min late{/if}</span>
+    <span class="lead"><Icon name={route.mode === 'walk' ? 'walk' : 'car'} size="1em" />{verb} {mi(route.meters)} via {route.via}</span>
+    <span class="sentence">It will take <b>{route.minutes} min</b> to get to {destination.name}</span>
+    <span class="line when">{#if mins > 0}Leave in {mins} min, by {time(leaveBy())}{:else if mins === 0}Leave now{:else}{-mins} min late{/if}</span>
   </div>
 
   {#if expanded}
-    <div class="modes">
+    <ToggleGroup type="single" orientation="vertical" rovingFocus={false} class="modes" bind:value={chosen, choose}>
       {#each routes as r, i}
-        <button class:chosen={ui.route === i} class:focus={focused(`route${i}`)} aria-pressed={ui.route === i} onclick={() => tap(`route${i}`)}>
+        <PickItem value={String(i)} class={[ui.route === i && 'chosen']}>
           <span class="m-icon"><Icon name={r.mode === 'walk' ? 'walk' : 'car'} size="1em" /></span>
           <span class="m-name">{r.label}</span>
-          {#if !narrow}<span class="m-via">{r.via} · {km(r.meters)}</span>{/if}
+          <span class="m-via">{r.via}, {mi(r.meters)}</span>
           <span class="m-time">{r.minutes} min</span>
-          {#if !narrow}<span class="m-leave">{time(leaveBy(i))}</span>{/if}
-        </button>
+          <span class="m-leave">{time(leaveBy(i))}</span>
+        </PickItem>
       {/each}
-      {#if !narrow && route.note}<span class="note">Driving includes {route.note.replace('incl. ', '')}.</span>{/if}
-    </div>
+    </ToggleGroup>
   {/if}
 </div>
 
@@ -54,35 +55,31 @@
   .scrim { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(to right, rgba(0, 0, 0, .78) 0%, rgba(0, 0, 0, .45) 40%, transparent 70%); }
 
   .content { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: flex-start; padding: var(--pt) var(--px) 0; pointer-events: none; }
-  .lead { display: inline-flex; align-items: center; gap: .45em; font-size: var(--t-body); color: var(--ink2); --hole: #000; }
+  .lead { display: inline-flex; align-items: center; gap: .45em; font-size: var(--t-body); color: var(--ink2); }
   .lead :global(.icon) { color: var(--ink); }
-  .big { display: flex; align-items: baseline; margin-top: .1em; }
-  .num { font-size: var(--t-display); font-weight: 300; letter-spacing: -.05em; line-height: 1; font-variant-numeric: tabular-nums; color: var(--route); transition: color .4s; }
-  .num.word { letter-spacing: -.03em; }
-  .unit { font-size: var(--t-title); font-weight: 400; margin-left: .25em; color: var(--ink2); }
-  .line { font-size: var(--t-body); color: var(--ink2); margin-top: .45em; font-variant-numeric: tabular-nums; }
   .when { color: var(--route); transition: color .4s; }
   .route:not(.soon):not(.now) .when { color: var(--ink2); }
   .sentence { max-width: 72%; }
-  .narrow .sentence, .expanded .sentence { max-width: none; }
+  :global(.d0) .sentence, :global(.d1) .sentence { max-width: 88%; }
+  .expanded .sentence { max-width: none; }
 
-  .modes { position: absolute; left: var(--px); right: var(--px); bottom: var(--pb); z-index: 1; display: flex; flex-direction: column; }
-  .modes button { display: grid; grid-template-columns: 1.6em auto 1fr auto 3.4em; align-items: baseline; gap: .6em; padding: .7em .2em; border-top: 1px solid var(--hair); font-size: var(--t-body); color: var(--ink2); text-align: left; --hole: #000; }
-  .modes button:last-of-type { border-bottom: 1px solid var(--hair); }
-  .modes .chosen { color: var(--ink); }
-  .modes .chosen .m-icon { color: var(--route); }
+  /* shadcn ToggleGroup isn't scoped here. unlayered css beats its utilities; :where keeps
+     specificity under the focus pill so the pill still shows on focused rows */
+  .route :global(:where(.modes)) { width: auto; align-items: normal; gap: 0; border-radius: 0; }
+  .route :global(:where(.modes) > button) { height: auto; min-width: auto; flex-shrink: 1; justify-content: normal; white-space: inherit; font-weight: inherit; line-height: inherit; background: none; border-radius: 0; box-shadow: none; transition: none; z-index: auto; }
+  .route :global(:where(.modes) > button svg) { width: 1em; height: 1em; flex-shrink: 1; pointer-events: inherit; }
+
+  .route :global(.modes) { position: absolute; left: var(--px); right: var(--px); bottom: var(--pb); z-index: 1; display: flex; flex-direction: column; }
+  .route :global(.modes button) { display: grid; grid-template-columns: 1.6em auto 1fr auto 3.4em; align-items: baseline; gap: .6em; padding: .7em .2em; border-top: 1px solid var(--hair); font-size: var(--t-body); color: var(--ink2); text-align: left; }
+  .route :global(.modes button:last-of-type) { border-bottom: 1px solid var(--hair); }
+  .route :global(.modes .chosen) { color: var(--ink); }
+  .route :global(.modes .chosen .m-icon) { color: var(--route); }
   .m-name { font-weight: 500; }
   .m-via { color: var(--ink3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .m-time, .m-leave { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
   .m-leave { color: var(--ink3); }
-  .chosen .m-leave { color: var(--ink2); }
-  .note { font-size: var(--t-cap); color: var(--ink3); margin-top: .6em; }
+  .route :global(.chosen .m-leave) { color: var(--ink2); }
 
-  .narrow .content { align-items: center; text-align: center; padding: calc(var(--pt) + 1.6em) var(--px) 0; }
-  /* open: keep the route off the walk and drive rows */
+  /* open: keep route off the walk/drive rows */
   .expanded .scrim { background: linear-gradient(to top, rgba(0, 0, 0, .92) 0%, rgba(0, 0, 0, .6) 30%, transparent 55%), linear-gradient(to right, rgba(0, 0, 0, .7), transparent 60%); }
-  .narrow .scrim { background: linear-gradient(to bottom, rgba(0, 0, 0, .75), transparent 55%); }
-  .narrow .modes button { grid-template-columns: 1.4em 1fr auto; }
-  .compact .lead, .compact .line, .compact :global(.radar-layer) { display: none; }
-  .compact .content { padding-top: var(--pt); }
 </style>

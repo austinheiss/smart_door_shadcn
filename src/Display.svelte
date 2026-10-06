@@ -1,23 +1,14 @@
 <script>
-  // The screen on the door: directions, weather and today, stacked and
-  // blended into one another through black. Selecting a section lets it
-  // take over the whole screen.
-  import { flip } from 'svelte/animate';
   import RouteSection from './RouteSection.svelte';
   import WeatherSection from './WeatherSection.svelte';
   import CalendarSection from './CalendarSection.svelte';
-  import { ui, clock, time, items, tap, hover, unhover, reorder } from './door.svelte.js';
+  import Icon from './Icon.svelte';
+  import { ui, clock, time, tap, walk } from './door.svelte.js';
 
   const names = { route: 'directions', weather: 'weather', remind: 'calendar' };
   const parts = { route: RouteSection, weather: WeatherSection, remind: CalendarSection };
-  const grow = { route: 1, weather: 1, remind: 1 };
 
-  let dragging = $state(null);
-  const focused = (key) => items()[ui.focus] === key;
-  const narrow = $derived(ui.layout === 'strip');
-
-  // Soft fades as one continuous eased curve: many smoothstep stops, so the
-  // falloff never shows the kinks that a few straight segments leave behind.
+  // lots of eased stops so the fades don't show kinks
   const ease = (t) => t * t * t * (t * (6 * t - 15) + 10); // smootherstep
   function soft(dir, a, b, c, d) {
     const stops = [];
@@ -32,52 +23,82 @@
     if (d > c) ramp(c, d, false); else stops.push(`#000 ${c}%`);
     return `linear-gradient(${dir}, ${stops.join(', ')})`;
   }
-  // The sky is one layer with one vertical fade, full width; the map fades in
-  // from the left so the directions text sits on black.
+  // fixed-depth fade at each end, so the open sky's edge lands on the card edge
+  function edges(len) {
+    const stops = [];
+    for (let i = 0; i <= 16; i++) { const t = i / 16; stops.push(`rgba(0,0,0,${ease(t).toFixed(4)}) calc(${len} * ${t.toFixed(4)})`); }
+    for (let i = 0; i <= 16; i++) { const t = i / 16; stops.push(`rgba(0,0,0,${(1 - ease(t)).toFixed(4)}) calc(100% - ${len} * ${(1 - t).toFixed(4)})`); }
+    return `linear-gradient(to bottom, ${stops.join(', ')})`;
+  }
+  // map fades in from the left so the directions text sits on black
   function fade(key) {
-    if (key === 'weather') return ui.view === key ? (ui.order[0] === key ? soft('to bottom', 0, 0, 55, 100) : soft('to bottom', 0, 14, 55, 100)) : soft('to bottom', 0, 36, 54, 96);
+    if (key === 'weather') return ui.view === key ? edges('2 * var(--inset)') : soft('to bottom', 0, 36, 54, 96);
     if (ui.view === key) return `${soft('to bottom', 0, 14, 60, 100)}, ${soft('to right', 0, 12, 80, 100)}`;
     return `${soft('to bottom', 0, 20, 54, 90)}, ${soft('to right', 18, 52, 80, 100)}`;
   }
 
-  function startDrag(event, key) {
-    event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    dragging = key;
+  // compact cards all take the tallest measured height so they're equal bands
+  const heights = $state({});
+  function measure(node, key) {
+    const content = () => node.querySelector('.content');
+    const set = () => { const c = content(); if (c) heights[key] = Math.ceil(c.offsetHeight); };
+    const ro = new ResizeObserver(set);
+    const c = content();
+    if (c) ro.observe(c, { box: 'border-box' }); // padding changes when compact
+    set();
+    return { destroy: () => ro.disconnect() };
   }
-  function dragMove(event) {
-    if (!dragging) return;
-    const over = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-sec]');
-    const target = over?.getAttribute('data-sec');
-    if (target && target !== dragging) reorder(dragging, ui.order.indexOf(target));
+  const band = $derived(Math.max(0, ...ui.order.filter((k) => ui.view !== 'home' && k !== ui.view).map((k) => heights[k] ?? 0)));
+
+  // squircle corners (|x|^5 + |y|^5 = 1), path in the screen's own px
+  function squircle(node) {
+    const set = () => {
+      const w = node.offsetWidth, h = node.offsetHeight;
+      const r = Math.min(w, h) * 0.11, n = 5, steps = 14;
+      const pts = [];
+      const corner = (cx, cy, from) => {
+        for (let i = 0; i <= steps; i++) {
+          const a = from + (Math.PI / 2) * (i / steps);
+          const c = Math.cos(a), s = Math.sin(a);
+          pts.push([cx + r * Math.sign(c) * Math.abs(c) ** (2 / n), cy + r * Math.sign(s) * Math.abs(s) ** (2 / n)]);
+        }
+      };
+      corner(w - r, r, -Math.PI / 2);
+      corner(w - r, h - r, 0);
+      corner(r, h - r, Math.PI / 2);
+      corner(r, r, Math.PI);
+      node.style.clipPath = `path('M${pts.map(([x, y]) => `${x.toFixed(2)} ${y.toFixed(2)}`).join('L')}Z')`;
+    };
+    const ro = new ResizeObserver(set);
+    ro.observe(node);
+    set();
+    return { destroy: () => ro.disconnect() };
   }
 </script>
 
-<div class="display {ui.layout} d{ui.distance}" data-view={ui.view}>
+<!-- open card = read up close, so use the at-the-door type (d2) -->
+<div class="display d{ui.view === 'home' ? ui.distance : 2}" data-view={ui.view} style:--near={walk.at.toFixed(4)} use:squircle>
   <div class="screen">
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="stack" class:expanded={ui.view !== 'home'} class:picking={ui.focus >= 0} onpointermove={dragMove} onpointerup={() => (dragging = null)} onpointercancel={() => (dragging = null)}>
-      {#each ui.order as key, i (key)}
+    <div class="stack" class:expanded={ui.view !== 'home'}>
+      {#each ui.order as key (key)}
         {@const Part = parts[key]}
         {@const open = ui.view === key}
         {@const compact = ui.view !== 'home' && !open}
-        <div class="sec" data-sec={key} class:open class:compact class:focus={ui.view !== key && focused(key)} class:dragging={dragging === key}
-             style:--grow={open ? 3.4 : compact ? (narrow ? 1.25 : 1) : grow[key]} style:--fade={fade(key)} animate:flip={{ duration: 450 }}>
-          <Part expanded={open} {compact} {narrow} {focused} />
-          {#if !open}
-            <button class="hit" onclick={() => tap(key)} onpointermove={(e) => e.pointerType === 'mouse' && hover(key)} onpointerleave={() => unhover(key)} aria-label={`Open ${names[key]}`}></button>
-          {/if}
-          {#if ui.view === 'home'}
-            <span class="grip" title="Drag to reorder" onpointerdown={(e) => startDrag(e, key)} aria-hidden="true"></span>
-          {:else if open}
-            <!-- tapping the open card's sentence puts all three back to rest -->
+        <div class="sec" data-sec={key} class:open class:compact
+             style:--grow={compact ? 0 : 1} use:measure={key} style:--h={band ? `${band}px` : null} style:--fade={fade(key)}>
+          <Part expanded={open} />
+          {#if open}
             <button class="close-hit" onclick={() => tap(key)} aria-label={`Close ${names[key]}`}></button>
+          {:else}
+            <button class="hit" onclick={() => tap(key)} aria-label={`Open ${names[key]}`}></button>
           {/if}
         </div>
       {/each}
     </div>
 
-    {#if ui.view === 'home'}<span class="clock">{time(clock.now)}</span>{/if}
+    {#if ui.view === 'home'}
+      <span class="clock">{time(clock.now)}<span class="links" aria-label="Wi-Fi and Bluetooth connected" role="img"><Icon name="wifi" /><Icon name="bluetooth" /></span></span>
+    {/if}
   </div>
 </div>
 
@@ -87,82 +108,62 @@
     container-type: size;
     background: #000;
     color: #fff;
-    border: 2px solid var(--blue);
-    border-radius: 10px;
     overflow: hidden;
     font-family: var(--d-font);
     font-feature-settings: 'ss01', 'cv11';
     -webkit-font-smoothing: antialiased;
+    left: 11%; top: 6%; width: 78%; height: 46%;
   }
-  /* the glass: a black border inside the bezel, a soft inner shadow and a faint sheen */
-  /* a whisper of grain over the glass hides 8-bit banding in the long fades */
+  /* grain hides banding in the long fades */
   .screen::after { content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 5; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .5 0 0 0 0 .5 0 0 0 0 .5 0 0 0 1 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E"); background-size: 160px; opacity: .06; mix-blend-mode: overlay; }
-  .display::after { content: ''; position: absolute; inset: 0; pointer-events: none; border-radius: inherit; z-index: 3;
-    box-shadow: inset 0 0 0 3px #000;
+  /* glass sheen */
+  .display::after { content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 3;
     background: linear-gradient(118deg, rgba(255, 255, 255, .07) 0%, rgba(255, 255, 255, .02) 28%, transparent 42%); }
-  .rect { left: 11%; top: 6%; width: 78%; height: 46%; }
-  .strip { left: 67%; top: 7%; width: 27%; height: 76%; }
 
-  /* one spacing rhythm and type scale for every section */
-  .screen { position: absolute; inset: 0; font-size: calc(var(--k) * 1cqi); line-height: 1.25;
-    --px: 1.6em; --pt: 1em; --pb: 1em; --gap: .5em;
-    --t-say: 1.38em; --t-cap: .66em; --t-body: .8em; --t-small: .8em; --t-title: 1.15em; --t-head: 1.55em; --t-display: 3.1em;
+  .screen { position: absolute; inset: 0; font-size: calc(4.2 * 1cqi); line-height: 1.25;
+    --px: 1.6em; --pt: 1em; --pb: 1em; --t-say: 1.38em; --t-body: .8em;
     --ink: #f3eee4; --ink2: rgba(243, 238, 228, .64); --ink3: rgba(243, 238, 228, .4); --hair: rgba(243, 238, 228, .12);
     color: var(--ink); }
-  .strip .screen { --px: .5em; }
-  .strip .screen { --t-display: 2.3em; --t-body: .72em; --t-say: 1.05em; }
-  .rect .screen { --k: 4.2; }
-  .strip .screen { --k: 12.5; }
 
   button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: inherit; -webkit-tap-highlight-color: transparent; }
-  /* Distance: from down the hall (d0) only the sentences show, set large; a few
-     steps away (d1) the detail line joins them; at the door (d2) everything.
-     Small text folds away smoothly rather than popping. */
-  .screen :global(.lead), .screen :global(.content > .line) { max-height: 3em; overflow: hidden; transition: opacity .45s, max-height .55s cubic-bezier(.3, .8, .2, 1), margin .55s; }
+  /* d0 = down the hall (sentences only), d1 = + detail line, d2 = at the door (all) */
+  .screen :global(.lead), .screen :global(.content > .line) { max-height: 3em; overflow: hidden; transition: opacity .45s, max-height .55s cubic-bezier(.3, .8, .2, 1), margin .55s, font-size .55s cubic-bezier(.3, .8, .2, 1); }
   .d0 .screen :global(.sec:not(.open) .lead), .d0 .screen :global(.sec:not(.open) .content > .line),
   .d1 .screen :global(.sec:not(.open) .lead) { opacity: 0; max-height: 0; margin-top: 0; }
   .d0 .clock, .d1 .clock { opacity: 0; }
-  .clock { transition: opacity .45s; }
-  .d0 .screen { --t-say: 1.95em; }
-  .d1 .screen { --t-say: 1.62em; }
-  .d0.strip .screen { --t-say: 1.4em; }
-  .d1.strip .screen { --t-say: 1.2em; }
-  .screen :global(.sentence) { transition: font-size .55s cubic-bezier(.3, .8, .2, 1); }
-  /* the headline of every card is a sentence; its figure is set a little heavier */
-  .screen :global(.sentence) { font-size: var(--t-say); font-weight: 300; letter-spacing: -.028em; line-height: 1.14; margin-top: .25em; text-wrap: balance; color: var(--ink); }
+  /* at rest type scales with --near: sentences shrink to door size by .9, detail line
+     from .6 to .9. door grows faster than type shrinks, so text still looks bigger up close */
+  .display[data-view='home'] .screen { --t-say: calc((1.38 + .49 * (1 - min(1, var(--near) / .9))) * 1em); }
+  .display[data-view='home'] .screen :global(.sec .content > .line) { font-size: calc((.8 + .17 * clamp(0, (.9 - var(--near)) / .3, 1)) * 1em); text-wrap: balance; }
+  /* calendar sentence is longest, give it full width to stay on 2 lines */
+  .d0 .screen :global(.sec:not(.open) .cal .sentence), .d1 .screen :global(.sec:not(.open) .cal .sentence) { max-width: none; }
+  /* at rest: text centred in each band */
+  .stack:not(.expanded) .sec > :global(:is(.route, .weather, .cal)) { display: flex; flex-direction: column; height: 100%; }
+  .stack:not(.expanded) .sec :global(.content) { height: auto; margin-block: auto; padding-top: 0; padding-bottom: 0; }
+  .screen :global(.sentence) { transition: font-size .55s cubic-bezier(.3, .8, .2, 1); font-size: var(--t-say); font-weight: 300; letter-spacing: -.028em; line-height: 1.14; margin-top: .25em; text-wrap: balance; color: var(--ink); }
   .screen :global(.sentence b) { font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
-  /* inside an open card the knob's item gets a soft lit pill, never a hard outline */
-  .screen :global(.focus:not(.sec)), .screen :global(button:focus-visible) { outline: none; background: rgba(243, 238, 228, .1); box-shadow: 0 0 0 .35em rgba(243, 238, 228, .1); border-radius: .6em; transition: background .25s, box-shadow .25s; }
+  /* :where so a card can recolour it */
+  :global(:where(.screen .content > .line)) { font-size: var(--t-body); color: var(--ink2); margin-top: .45em; font-variant-numeric: tabular-nums; }
+  .screen :global(button:focus-visible) { outline: none; background: rgba(243, 238, 228, .1); box-shadow: 0 0 0 .35em rgba(243, 238, 228, .1); border-radius: .6em; transition: background .25s, box-shadow .25s; }
 
-  /* cards: inset from the frame and from each other */
   .stack { position: absolute; inset: var(--inset); display: flex; flex-direction: column; gap: var(--inset); --inset: .9em; }
-  .strip .stack { --inset: .45em; }
-  .sec { position: relative; z-index: 1; flex: var(--grow) 1 0; min-height: 0; border-radius: 1.1em; transform-origin: center; transition: flex-grow .5s cubic-bezier(.3, .8, .2, 1), opacity .4s, font-size .4s cubic-bezier(.3, .8, .2, 1); }
-  /* each card's picture reaches into the gap above and below it, so neighbours dissolve into one another */
+  .sec { position: relative; z-index: 1; flex: var(--grow) 1 0; min-height: 0; border-radius: 1.1em; transition: flex-grow .5s cubic-bezier(.3, .8, .2, 1), flex-basis .5s cubic-bezier(.3, .8, .2, 1), opacity .4s; }
+  /* bg bleeds into the gaps so neighbours blend */
   .sec:not(.open) :global(.bg) { top: -18%; bottom: -18%; }
-  .sec :global(.bg) { transition: top .55s cubic-bezier(.3, .8, .2, 1), bottom .55s cubic-bezier(.3, .8, .2, 1), left .55s, right .55s; }
-  /* while one card is open, the others shrink to their sentence and step back */
-  .sec.compact { opacity: .62; }
-  .sec.compact.focus { opacity: 1; }
-  /* the sky runs to the screen's edges like the map, with no box shape */
+  .sec :global(.bg) { pointer-events: none; transition: top .55s cubic-bezier(.3, .8, .2, 1), bottom .55s cubic-bezier(.3, .8, .2, 1), left .55s, right .55s; }
+  /* animate flex-basis to the measured height so nothing snaps */
+  .sec.compact { opacity: .62; flex-basis: var(--h, 4em); }
+  /* sky goes full width like the map */
   .sec[data-sec='weather'] :global(.bg:first-child) { left: calc(-1 * var(--inset)); right: calc(-1 * var(--inset)); }
-  .stack > .sec[data-sec='weather'].open:first-child :global(.bg:first-child) { top: calc(-1 * var(--inset)); }
+  /* open sky reaches into the gaps so content looks centred */
+  .sec[data-sec='weather'].open :global(.bg:first-child) { top: calc(-1 * var(--inset)); bottom: calc(-1 * var(--inset)); }
+  .sec.compact :global(.sentence) { margin-top: 0; }
+  .sec.compact > :global(:is(.route, .weather, .cal)) { display: flex; flex-direction: column; }
+  .sec.compact :global(.content) { margin-block: auto; padding-top: .75em; padding-bottom: .75em; height: auto; }
+  .sec.compact :global(:is(.lead, .content > .line, .radar-layer)) { display: none; }
   .sec[data-sec='weather']:not(.open) :global(.bg:first-child) { top: -30%; bottom: -30%; }
-  /* the card the knob is on floats forward; the rest sink back */
-  /* (grown through layout and type size rather than a transform: transforms leave seams at the soft edges) */
-  .stack.picking:not(.expanded) .sec:not(.focus) { opacity: .42; }
-  .stack:not(.expanded) .sec.focus { z-index: 2; font-size: 1.06em; }
-  .strip .sec { border-radius: .8em; }
-  .sec.dragging { opacity: .55; }
   .close-hit { position: absolute; left: 0; right: 0; top: 0; height: 17%; z-index: 2; }
   .hit { position: absolute; inset: 0; z-index: 2; border-radius: inherit; }
-  .grip { position: absolute; right: .35em; top: 50%; translate: 0 -50%; width: .8em; height: 1.4em; z-index: 2; cursor: grab; touch-action: none; opacity: 0; transition: opacity .2s;
-    background: radial-gradient(circle, rgba(255, 255, 255, .8) 1px, transparent 1.5px) 0 0 / .4em .4em; }
-  .stack:hover .grip, .sec.dragging .grip { opacity: .6; }
-  .strip .grip { right: 50%; translate: 50% 0; top: auto; bottom: 18%; width: 1.4em; height: .7em; }
-
-  .clock { position: absolute; top: calc(var(--pt) + .7em); right: calc(var(--px) + .7em); z-index: 2; font-size: var(--t-body); font-weight: 400; color: var(--ink2); font-variant-numeric: tabular-nums; pointer-events: none; }
-  .strip .clock { right: 50%; translate: 50% 0; }
-
-
+  .clock { position: absolute; top: calc(var(--pt) + .7em); right: calc(var(--px) + .7em); z-index: 2; display: flex; align-items: center; gap: .45em; font-size: var(--t-body); font-weight: 400; color: var(--ink2); font-variant-numeric: tabular-nums; pointer-events: none; transition: opacity .45s; }
+  .links { display: flex; gap: .3em; }
 </style>

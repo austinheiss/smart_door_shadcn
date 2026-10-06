@@ -1,0 +1,31 @@
+/* no preflight, utilities are just for the shadcn parts */
+@layer theme, base, components, utilities;
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities) source(none);
+@source './lib';
+
+@custom-variant dark (&:is(.dark *));
+
+/* shadcn tokens mapped to the sketch palette in app.css */
+:root {
+  --radius: 0.5rem;
+  --foreground: var(--ink);
+  --primary: var(--ink);
+  --muted: #f1efe8;
+  --destructive: var(--red);
+  --border: #1e1e1e;
+  --input: #1e1e1e;
+  --ring: var(--green);
+}
+
+@theme inline {
+  --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-muted: var(--muted);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+}

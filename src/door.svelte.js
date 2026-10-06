@@ -1,42 +1,36 @@
-// Shared state for the door: which display and knob are fitted, what the
-// screen shows, and which item the knob is pointing at.
+// Shared state for the door: what the screen shows,
+// and which card a tap has opened.
+import { untrack } from 'svelte';
 import routeData from './routes.json';
 
-// "Shuffle as you get closer": the most useful section moves to the top.
+// How far down the hall you stand.
+// `from` is where each distance begins along the hall (0 the far end, 1 at the door).
 export const DISTANCES = [
-  { id: 'far', short: 'Far', label: 'down the hall', order: ['route', 'weather', 'remind'] },
-  { id: 'near', short: 'Near', label: 'a few steps away', order: ['weather', 'route', 'remind'] },
-  { id: 'door', short: 'At door', label: 'at the door', order: ['remind', 'route', 'weather'] },
+  { label: 'down the hall', from: 0 },
+  { label: 'a few steps away', from: 0.4 },
+  { label: 'at the door', from: 0.78 },
 ];
 
-// Weather the screen can preview. "live" uses the real conditions outside.
-export const SKIES = ['live', 'sunny', 'cloudy', 'rain', 'storm', 'snow', 'fog', 'hot', 'cold'];
+// Weather the screen can show, picked in the side panel.
+export const SKIES = ['sunny', 'cloudy', 'rain', 'storm', 'snow', 'hot', 'cold', 'night'];
 
 export const ui = $state({
-  layout: 'rect', // rect | strip
-  knob: 'handle', // handle | joystick
   view: 'home', // home | weather | route | remind
-  focus: -1, // nothing is selected until the knob or a touch picks something
-  order: [...DISTANCES[0].order],
+  order: ['route', 'weather', 'remind'],
   distance: 0,
-  manual: false,
-  celsius: false,
-  route: 0, // 0 walk, 1 drive
-  sky: 'live',
-  lever: 0, // handle angle nudged by the keyboard
-  push: { x: 0, y: 0 }, // joystick offset nudged by the keyboard
-  twist: 0, // joystick ring angle nudged by the keyboard
+  route: 1, // 0 walk, 1 drive (driving by default, hence the keys)
+  sky: 'sunny',
 });
 
 // ---------------------------------------------------------------- places + routes
-export const home = { name: 'Home', lat: 39.1305, lon: -84.526 };
-export const destination = { name: 'Design studio', place: 'DAAP 5401', short: 'DAAP', lat: 39.1343, lon: -84.5185, at: '9:00' };
+export const home = { lat: 39.1305, lon: -84.526 };
+export const destination = { name: 'Langsam Library', short: 'Langsam', lat: 39.1345, lon: -84.515 };
 
 // Real walking and driving routes (OpenStreetMap routing), saved in routes.json.
 export const routes = [
-  { mode: 'walk', label: 'Walk', via: 'Straight St', minutes: Math.round(routeData.walk.seconds / 60), meters: routeData.walk.meters, path: routeData.walk.path },
+  { mode: 'walk', label: 'Walk', via: 'UC MainStreet', minutes: Math.round(routeData.walk.seconds / 60), meters: routeData.walk.meters, path: routeData.walk.path },
   // Driving adds five minutes to find parking on campus.
-  { mode: 'drive', label: 'Drive', via: 'Clifton Ave', minutes: Math.round(routeData.drive.seconds / 60) + 5, meters: routeData.drive.meters, path: routeData.drive.path, note: 'incl. 5 min parking' },
+  { mode: 'drive', label: 'Drive', via: 'Clifton Ave', minutes: Math.round(routeData.drive.seconds / 60) + 5, meters: routeData.drive.meters, path: routeData.drive.path },
 ];
 
 // ---------------------------------------------------------------- calendar
@@ -66,7 +60,7 @@ base.setHours(8, 31, 0, 0);
 export const clock = $state({ now: new Date(base) });
 setInterval(() => (clock.now = new Date(base.getTime() + Date.now() - started)), 5000);
 
-export const temp = (f) => (ui.celsius ? Math.round(((f - 32) * 5) / 9) : Math.round(f));
+export const temp = (f) => Math.round(f);
 export const time = (d) => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).replace(/\s?[AP]M/i, '');
 
 export function leaveBy(index = ui.route) {
@@ -84,191 +78,125 @@ export function urgency() {
 }
 
 // ---------------------------------------------------------------- weather
-// Live conditions for Cincinnati from Open-Meteo, with sample data as a fallback.
-export const weather = $state({
-  live: false,
-  temp: 64, feels: 63, high: 72, low: 58, wind: 6, code: 2, isDay: true,
-  hourly: [], // { offset (hours from now), temp, code, pop }
-  precip: [], // mm per 15 minutes for the next three hours
-  precipIn: null, // minutes until precipitation starts, null when none is coming
-});
-
-const LAT = 39.1031, LON = -84.512;
-async function loadWeather() {
-  try {
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}&current=temperature_2m,apparent_temperature,weather_code,is_day,wind_speed_10m&hourly=temperature_2m,weather_code,precipitation_probability&minutely_15=precipitation&daily=temperature_2m_max,temperature_2m_min&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto&forecast_days=2`;
-    const d = await (await fetch(url)).json();
-    const nowIso = d.current.time;
-    const start = d.hourly.time.findIndex((t) => t >= nowIso.slice(0, 13));
-    Object.assign(weather, {
-      live: true,
-      temp: d.current.temperature_2m, feels: d.current.apparent_temperature, code: d.current.weather_code,
-      isDay: d.current.is_day === 1, wind: Math.round(d.current.wind_speed_10m),
-      high: d.daily.temperature_2m_max[0], low: d.daily.temperature_2m_min[0],
-      hourly: d.hourly.time.slice(Math.max(0, start), Math.max(0, start) + 10).map((t, i) => ({
-        offset: i - new Date(nowIso).getMinutes() / 60, temp: d.hourly.temperature_2m[start + i], code: d.hourly.weather_code[start + i], pop: d.hourly.precipitation_probability[start + i],
-      })),
-    });
-    const m = d.minutely_15;
-    const from = m.time.findIndex((t) => t >= nowIso);
-    const next = m.precipitation.slice(from, from + 12).findIndex((p) => p > 0.05);
-    weather.precipIn = next < 0 ? null : next * 15;
-    weather.precip = m.precipitation.slice(from, from + 12);
-  } catch {
-    weather.live = false;
-  }
-}
-loadWeather();
-setInterval(loadWeather, 10 * 60 * 1000);
-
-export function kindOf(code, t) {
-  if (code >= 95) return 'storm';
-  if ((code >= 71 && code <= 77) || code === 85 || code === 86) return 'snow';
-  if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) return 'rain';
-  if (code === 45 || code === 48) return 'fog';
-  if (code === 3) return 'cloudy';
-  if (t >= 88) return 'hot';
-  if (t <= 32) return 'cold';
-  return code === 2 ? 'partly' : 'sunny';
-}
-
-// What the screen shows: the live reading, or a preview picked in the side panel.
+// What the screen shows: the scene picked in the side panel.
 const PREVIEW = {
-  sunny: { temp: 74, code: 0, text: 'Sunny', precipIn: null },
-  cloudy: { temp: 61, code: 3, text: 'Overcast', precipIn: null },
-  rain: { temp: 57, code: 63, text: 'Rain', precipIn: 0 },
-  storm: { temp: 69, code: 95, text: 'Thunderstorms', precipIn: 20 },
-  snow: { temp: 28, code: 73, text: 'Snow', precipIn: 0 },
-  fog: { temp: 52, code: 45, text: 'Fog', precipIn: null },
-  hot: { temp: 97, code: 0, text: 'Hot and sunny', precipIn: null },
-  cold: { temp: 14, code: 1, text: 'Clear and frigid', precipIn: null },
+  sunny: { temp: 74, text: 'Sunny', precipIn: null },
+  cloudy: { temp: 61, text: 'Overcast', precipIn: null },
+  rain: { temp: 57, text: 'Rain', precipIn: 0 },
+  storm: { temp: 69, text: 'Thunderstorms', precipIn: 20 },
+  snow: { temp: 28, text: 'Snow', precipIn: 0 },
+  hot: { temp: 97, text: 'Hot and sunny', precipIn: null },
+  cold: { temp: 14, text: 'Clear and frigid', precipIn: null },
+  night: { temp: 52, text: 'Clear night', precipIn: null },
 };
-const TEXT = { sunny: 'Clear', partly: 'Partly cloudy', cloudy: 'Overcast', rain: 'Rain', storm: 'Thunderstorms', snow: 'Snow', fog: 'Fog', hot: 'Hot', cold: 'Cold and clear' };
 
 export function conditions() {
-  if (ui.sky !== 'live') {
-    const p = PREVIEW[ui.sky];
-    const kind = ui.sky === 'sunny' ? 'sunny' : ui.sky;
-    const hourly = Array.from({ length: 10 }, (_, i) => ({ offset: i - 0.5, temp: p.temp + Math.round(Math.sin(i / 2.5) * 5 + i * 0.6), code: p.code, pop: p.precipIn === null ? 5 : 70 - i * 4 }));
-    const wet = { rain: 1.2, storm: 2.6, snow: 0.8 }[kind] ?? 0;
-    const precip = Array.from({ length: 12 }, (_, i) => (p.precipIn === null || i * 15 < p.precipIn ? 0 : wet * (0.5 + Math.sin(i * 0.9) * 0.4 + (i % 3) * 0.15)));
-    return { ...p, kind, isDay: true, feels: p.temp - 2, high: p.temp + 5, low: p.temp - 7, wind: 9, hourly, precip, live: false };
-  }
-  const kind = kindOf(weather.code, weather.temp);
-  const precipIn = kind === 'rain' || kind === 'snow' || kind === 'storm' ? 0 : weather.precipIn;
-  return { ...weather, kind, text: TEXT[kind], precipIn };
+  const p = PREVIEW[ui.sky] ?? PREVIEW.sunny;
+  const night = ui.sky === 'night';
+  const kind = night ? 'sunny' : ui.sky;
+  // the night cools through the small hours instead of warming toward noon
+  const hourly = Array.from({ length: 10 }, (_, i) => ({ offset: i - 0.5, temp: night ? p.temp - Math.round(i * 0.8) : p.temp + Math.round(Math.sin(i / 2.5) * 5 + i * 0.6), pop: p.precipIn === null ? 5 : 70 - i * 4 }));
+  return { ...p, kind, isDay: !night, feels: p.temp - 2, high: night ? p.temp + 16 : p.temp + 5, low: p.temp - 7, wind: night ? 4 : 9, hourly };
 }
 
-// One factual line under the reading: when precipitation starts, otherwise how it feels.
-export function outlook(c) {
-  if (c.precipIn) return `Starting around ${time(new Date(clock.now.getTime() + c.precipIn * 60000))}`;
-  return `Feels like ${temp(c.feels)}°`;
-}
-
-// ---------------------------------------------------------------- knob navigation
-// The knob walks one list: each card, and inside the open card its controls.
-// Landing on a card is selecting it: at the door it opens in place and the
-// other two shrink to their sentence; farther away it is only emphasised.
-const controlsOf = (k) => (k === 'weather' ? ['unit'] : k === 'route' ? ['route0', 'route1'] : reminders.map((r) => r.id));
+// ---------------------------------------------------------------- picking
+// Tapping a card opens it in place and the other two shrink to their sentence;
+// tapping the open card (or another one) closes it or hands the screen over.
 const isCard = (key) => ui.order.includes(key);
 
-export function items() {
-  const out = [];
-  for (const k of ui.order) {
-    out.push(k);
-    if (ui.view === k) out.push(...controlsOf(k));
-  }
-  return out;
-}
-
-// point the knob at a card (and open it when you're close enough to read it)
-function land(key) {
-  ui.view = ui.distance === 2 ? key : 'home';
-  ui.focus = items().indexOf(key);
-}
-
-export function move(step) {
+export function tap(key) {
   touch();
-  const list = items();
-  const n = list.length;
-  const i = ui.focus < 0 ? (step > 0 ? 0 : n - 1) : (ui.focus + step + n) % n;
-  const key = list[i];
-  if (isCard(key)) land(key);
-  else ui.focus = i;
-}
-
-export function select(key = items()[ui.focus]) {
-  if (key === undefined) return move(1);
-  touch();
-  if (isCard(key)) {
-    // selecting the card you're already on puts everything back to rest
-    if (ui.view === key || (ui.view === 'home' && items()[ui.focus] === key && ui.distance < 2)) {
-      back(true);
-      hoverBlocked = key; // don't let a resting mouse reopen what was just closed
-    }
-    else land(key);
-  } else if (key === 'unit') {
-    ui.celsius = !ui.celsius;
-  } else if (key.startsWith('route')) {
-    ui.route = Number(key.slice(5));
-  } else {
+  if (isCard(key)) ui.view = ui.view === key ? 'home' : key;
+  else if (key.startsWith('route')) ui.route = Number(key.slice(5));
+  else {
     const r = reminders.find((r) => r.id === key);
     if (r) r.done = !r.done;
   }
 }
 
-export function back(rest = false) {
-  const from = ui.view;
+export function back() {
   ui.view = 'home';
-  ui.focus = rest ? -1 : Math.max(-1, items().indexOf(from));
 }
 
 // Nothing stays open for long untouched: after a while all three return to rest.
 const IDLE_MS = 20000;
 let lastTouch = Date.now();
-export function touch() { lastTouch = Date.now(); }
-setInterval(() => { if ((ui.view !== 'home' || ui.focus >= 0) && Date.now() - lastTouch > IDLE_MS) back(true); }, 1000);
+function touch() { lastTouch = Date.now(); }
+setInterval(() => { if (ui.view !== 'home' && Date.now() - lastTouch > IDLE_MS) back(); }, 1000);
 
-// A tap (or click) points the knob at what was touched and selects it.
-export function tap(key) {
-  touch();
-  if (isCard(key)) return select(key);
-  ui.focus = items().indexOf(key);
-  select(key);
-}
-
-// Hovering a card with a pointer is the same as turning the knob onto it.
-let hoverBlocked = null;
-export function hover(key) {
-  if (key === hoverBlocked) return;
-  touch();
-  if (ui.view !== key && items()[ui.focus] !== key) land(key);
-}
-export function unhover(key) {
-  if (key === hoverBlocked) hoverBlocked = null;
+// ---------------------------------------------------------------- the hall
+// Where you stand in the hallway, 0 the far end and 1 at the door. The slider
+// writes `target`; `at` follows it smoothly and is what the scene draws from.
+// Crossing a distance's `from` changes ui.distance.
+export const walk = $state({ target: 0.1, at: 0.1 });
+// Whether the keys on the hall's wall hook are still in view; the hall sets it as you
+// walk, and the reminder notices once you have passed them.
+export const hall = $state({ keysGone: false });
+export const zoneAt = (at) => DISTANCES.findLastIndex((d) => at >= d.from);
+export function walkTo(at) {
+  walk.target = Math.max(0, Math.min(1, at));
 }
 
-// How close you are sets how much the screen says: from down the hall only
-// the three sentences, a few steps away their detail lines too, and at the
-// door everything, including opening the card you point at.
-export function setDistance(i) {
-  const key = items()[ui.focus];
-  ui.distance = i;
-  if (isCard(key)) land(key);
-  else if (i < 2) back(ui.focus < 0);
+// `at` is a critically damped spring on `target`: a drag is followed closely,
+// a long jump glides there and settles without overshooting. With reduced
+// motion it jumps. The frame loop only runs while there is somewhere to go;
+// any write to `target` (the slider, walkTo, or the console) wakes it.
+const STIFF = 11; // the spring's natural frequency, per second
+let speed = 0;
+let frame = 0;
+let last = 0;
+const still = matchMedia('(prefers-reduced-motion: reduce)');
+
+function arrive(at) {
+  walk.at = at;
+  const z = zoneAt(at);
+  if (z !== ui.distance) ui.distance = z;
 }
 
-export function reorder(key, index) {
-  const focused = ui.view === 'home' ? items()[ui.focus] : null;
-  const order = ui.order.filter((k) => k !== key);
-  order.splice(index, 0, key);
-  ui.order = order;
-  ui.manual = true;
-  ui.focus = focused ? items().indexOf(focused) : -1;
+function step(now) {
+  const dt = Math.min(0.1, (now - (last || now)) / 1000);
+  last = now;
+  // the exact step of a critically damped spring, so it is stable at any frame rate
+  const off = walk.at - walk.target;
+  const e = Math.exp(-STIFF * dt);
+  const k = (speed + STIFF * off) * dt;
+  speed = (speed - STIFF * k) * e;
+  const next = walk.target + (off + k) * e;
+  if (Math.abs(next - walk.target) < 1e-4 && Math.abs(speed) < 1e-3) {
+    speed = 0;
+    frame = 0;
+    arrive(walk.target);
+    return;
+  }
+  arrive(next);
+  frame = requestAnimationFrame(step);
 }
 
-export function setLayout(layout) {
-  ui.layout = layout;
-  ui.view = 'home';
-  ui.focus = -1;
+function wake() {
+  if (still.matches) {
+    cancelAnimationFrame(frame);
+    frame = 0;
+    speed = 0;
+    arrive(walk.target);
+  } else if (!frame && walk.at !== walk.target) {
+    last = 0;
+    frame = requestAnimationFrame(step);
+  }
 }
+
+// Stepping back from the door puts an open card away: the screen returns to
+// rest for wherever you now stand. Stepping closer leaves it open.
+let was = walk.target;
+$effect.root(() => {
+  $effect(() => {
+    const to = walk.target;
+    untrack(() => {
+      if (to < was && ui.view !== 'home') back();
+      was = to;
+      wake();
+    });
+  });
+});
+
+// In development, `walk` is on window so the hall can be checked from the console.
+if (import.meta.env.DEV) window.walk = walk;
